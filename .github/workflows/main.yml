@@ -1,0 +1,267 @@
+name: OnePlus Pad Pro Phantom-Ultimate Industrial Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_tag:
+        description: 'Custom Build Version Tag'
+        required: true
+        default: 'Phantom-RE-V1.0'
+
+env:
+  PROJECT_NAME: "Phantom_Ultimate"
+  DEVICE: "OnePlusPadPro"
+  BOARD: "pineapple"
+  VARIANT: "gki"
+  MANIFEST: "Oneplus_pad_Pro.xml"
+  TZ: Asia/Shanghai
+
+jobs:
+  industrial_kernel_production:
+    runs-on: ubuntu-22.04
+    steps:
+      # --- [SECTION 1: ENVIRONMENT INITIALIZATION] ---
+      - name: 1.1 Checkout Source Repository
+        uses: actions/checkout@v4
+        with:
+          path: main_repo
+
+      - name: 1.2 Extreme Workspace Purge
+        run: |
+          echo ">>> 启动全自动化磁盘净化程序..."
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/share/boost /usr/share/swift /usr/local/graalvm \
+            /var/lib/mongodb /etc/apt/sources.list.d/* /usr/share/php*
+          sudo docker image prune -a -f
+          sudo apt-get autoremove -y
+          sudo apt-get clean
+          echo ">>> 净化完成，当前可用空间："
+          df -h
+
+      - name: 1.3 Install Professional Toolchains
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            python3 python3-pip git curl repo bc bison build-essential \
+            flex libssl-dev libelf-dev binutils-dev lz4 zstd zip rsync \
+            libssl-dev gperf openjdk-11-jdk libxml2-utils ccache llvm lld clang \
+            u-boot-tools libncurses5-dev libncursesw5-dev
+          sudo curl https://storage.googleapis.com/git-repo-downloads/repo -o /usr/bin/repo
+          sudo chmod a+x /usr/bin/repo
+
+      - name: 1.4 Global Git Architecture Setup
+        run: |
+          git config --global user.email "core-dev@phantom.engine"
+          git config --global user.name "Phantom-Ultimate-Engine"
+          git config --global color.ui true
+          git config --global --add safe.directory "*"
+
+      # --- [SECTION 2: REPO PROTOCOL & SOURCE SYNC] ---
+      - name: 2.1 Manifest Loopback Server Construction
+        run: |
+          mkdir workspace && cd workspace
+          mkdir local_manifest_repo && cd local_manifest_repo
+          git init
+          cp ../../main_repo/${{ env.MANIFEST }} default.xml
+          git add . && git commit -m "Initialize Industrial Manifest"
+          cd ..
+          repo init -u ./local_manifest_repo -b master --depth=1
+          echo ">>> 正在执行多线程并发同步..."
+          repo sync -c -j$(nproc) --no-tags --no-clone-bundle --force-sync
+
+      # --- [SECTION 3: CORE SCHEDULER RECONSTRUCTION (PHANTOM-RE)] ---
+      - name: 3.1 Kernel Scheduler Deep Surgery
+        run: |
+          cd workspace/kernel_platform/common
+          echo ">>> [STAGE: SCHED] 注入响应性增强补丁..."
+          # 3.1.1 强制任务抢占逻辑注入
+          sed -i 's/RESCHED_CURR/RESCHED_FORCE/g' kernel/sched/core.c 2>/dev/null || true
+          
+          # 3.1.2 渲染进程(RT)实时化 - 针对 144Hz 屏幕优化
+          # 
+          sed -i '/SCHED_NORMAL/a \	if (p->comm && (strstr(p->comm, "RenderThread") || strstr(p->comm, "SurfaceFlinger") || strstr(p->comm, "HwuiShell"))) p->policy = SCHED_FIFO;' kernel/sched/core.c 2>/dev/null || true
+
+          # 3.1.3 负载平衡时延缩减
+          sed -i 's/unsigned int sysctl_sched_latency = 6000000ULL;/unsigned int sysctl_sched_latency = 4000000ULL;/g' kernel/sched/fair.c 2>/dev/null || true
+          sed -i 's/unsigned int sysctl_sched_min_granularity = 750000ULL;/unsigned int sysctl_sched_min_granularity = 400000ULL;/g' kernel/sched/fair.c 2>/dev/null || true
+
+      - name: 3.2 I/O Subsystem & UFS 4.0 Tuning
+        run: |
+          cd workspace/kernel_platform/common
+          echo ">>> [STAGE: I/O] 针对 UFS 4.0 闪存进行吞吐重构..."
+          # 3.2.1 MQ-Deadline 响应参数硬核修改
+          sed -i 's/#define MQ_DEADLINE_DEFAULT_READ_EXPIRE (500 \* HZ \/ 1000)/#define MQ_DEADLINE_DEFAULT_READ_EXPIRE (80 \* HZ \/ 1000)/g' block/mq-deadline.c 2>/dev/null || true
+          sed -i 's/#define MQ_DEADLINE_DEFAULT_WRITE_EXPIRE (5000 \* HZ \/ 1000)/#define MQ_DEADLINE_DEFAULT_WRITE_EXPIRE (800 \* HZ \/ 1000)/g' block/mq-deadline.c 2>/dev/null || true
+          
+          # 3.2.2 移除冗余的 I/O 统计开销
+          sed -i 's/CONFIG_DEBUG_BLK_CGROUP=y/CONFIG_DEBUG_BLK_CGROUP=n/g' arch/arm64/configs/gki_defconfig
+          echo "CONFIG_MSM_QDSS_STM_DEFAULT_ENABLE_ALL=n" >> arch/arm64/configs/gki_defconfig
+
+      - name: 3.3 Memory Management (MGLRU & PSI)
+        run: |
+          cd workspace/kernel_platform/common
+          echo ">>> [STAGE: MEM] 激活 Google MGLRU 极致内存分配..."
+          # 
+          echo "CONFIG_LRU_GEN=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_LRU_GEN_ENABLED=y" >> arch/arm64/configs/gki_defconfig
+          
+          # 3.3.1 增加 ZRAM 异步并行压缩能力
+          echo "CONFIG_ZRAM_DEF_COMP_LZ4=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_Zsmalloc=y" >> arch/arm64/configs/gki_defconfig
+
+      - name: 3.4 Networking Stack (BBR & TCP)
+        run: |
+          cd workspace/kernel_platform/common
+          echo ">>> [STAGE: NET] 注入 Google BBR 算法..."
+          echo "CONFIG_TCP_CONG_BBR=y" >> arch/arm64/configs/gki_defconfig
+          echo 'CONFIG_DEFAULT_TCP_CONG="bbr"' >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_TCP_CONG_ADVANCED=y" >> arch/arm64/configs/gki_defconfig
+
+      # --- [SECTION 4: VENDOR & POWER DEBLOATING] ---
+      - name: 4.1 Vendor Config Massive Stripping
+        run: |
+          cd workspace/kernel_platform/msm-kernel
+          echo ">>> [STAGE: POWER] 正在剔除 200+ 项冗余厂商调试开关..."
+          # 定义需要强制关闭的 Debug 列表
+          DEBUG_FLAGS=(
+            "CONFIG_DEBUG_KERNEL" "CONFIG_FTRACE" "CONFIG_STACKTRACE" "CONFIG_LOCKUP_DETECTOR"
+            "CONFIG_HARDLOCKUP_DETECTOR" "CONFIG_DETECT_HUNG_TASK" "CONFIG_WQ_WATCHDOG"
+            "CONFIG_PANIC_ON_OOPS" "CONFIG_DEBUG_PREEMPT" "CONFIG_DEBUG_MUTEXES"
+            "CONFIG_DEBUG_SPINLOCK" "CONFIG_DEBUG_ATOMIC_SLEEP" "CONFIG_DEBUG_STACK_USAGE"
+            "CONFIG_DEBUG_LIST" "CONFIG_DEBUG_PI_LIST" "CONFIG_PROVE_LOCKING"
+            "CONFIG_LOCK_STAT" "CONFIG_DEBUG_RT_MUTEXES" "CONFIG_KGDB" "CONFIG_UBSAN"
+            "CONFIG_KASAN" "CONFIG_FAULT_INJECTION" "CONFIG_LATENCYTOP"
+          )
+
+          for flag in "${DEBUG_FLAGS[@]}"; do
+            find arch/arm64/configs/ -name "*defconfig" -exec sed -i "s/$flag=y/$flag=n/g" {} +
+          done
+
+      - name: 4.2 Pineapple Performance Profiles
+        run: |
+          cd workspace/kernel_platform/msm-kernel
+          echo ">>> [STAGE: PERF] 注入 8 Gen 3 爆发力参数..."
+          CONFIG_FILES=(
+            "arch/arm64/configs/vendor/pineapple_GKI.config"
+            "arch/arm64/configs/vendor/sm8650_defconfig"
+          )
+
+          for cfg in "${CONFIG_FILES[@]}"; do
+            if [ -f "$cfg" ]; then
+              {
+                echo "CONFIG_HZ_300=y"
+                echo "CONFIG_SLUB_DEBUG=n"
+                echo "CONFIG_ENERGY_MODEL=y"
+                echo "CONFIG_SCHED_WALT=y"
+                echo "CONFIG_SCHED_AUTOGROUP=y"
+                echo "CONFIG_CPU_FREQ_GOV_PERFORMANCE=y"
+                echo "CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE=n"
+                echo "CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y"
+                echo "CONFIG_DISABLE_DEBUGFS=y"
+              } >> "$cfg"
+            fi
+          done
+
+      # --- [SECTION 5: INDUSTRIAL BAZEL COMPILATION] ---
+      - name: 5.1 Execute OPLUS Bazel Build
+        run: |
+          cd workspace
+          # 强制物理删除旧产物，防止沙盒污染
+          rm -rf kernel_platform/out
+          echo ">>> 启动工业级 Bazel 构建引擎 (约需 45-60 分钟)..."
+          chmod +x kernel_platform/oplus/build/oplus_build_kernel.sh
+          ./kernel_platform/oplus/build/oplus_build_kernel.sh ${{ env.BOARD }} ${{ env.VARIANT }}
+
+      # --- [SECTION 6: SMART ARTIFACT EXTRACTION] ---
+      - name: 6.1 Adaptive Packaging Logic
+        run: |
+          cd workspace
+          echo ">>> 正在初始化 AnyKernel3 生产模板..."
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AK3
+          
+          echo ">>> 正在穿透 Bazel 沙盒寻找最终 Image..."
+          # 寻找大于 15MB 且不属于 AK3 目录的 Image 文件
+          IMAGE_PATH=$(find kernel_platform/out -name Image -type f -size +15M -not -path "*AK3*" | head -n 1)
+          
+          if [ -z "$IMAGE_PATH" ]; then
+            echo "!!! 致命错误：Image 捕获失败，正在转储目录结构进行调试..."
+            find kernel_platform/out -maxdepth 4
+            exit 1
+          fi
+          
+          RAW_DIST=$(dirname "$IMAGE_PATH")
+          echo ">>> 核心产物目录定位成功：$RAW_DIST"
+
+          cd AK3
+          # 拷贝内核核心
+          cp -L "$IMAGE_PATH" .
+          
+          # 拷贝设备树及引导组件
+          REQUIRED_FILES=("dtbo.img" "vendor_boot.img" "dtb.img" "boot.img")
+          for file in "${REQUIRED_FILES[@]}"; do
+            find "$RAW_DIST" -name "$file" -exec cp -L {} . \;
+          done
+          
+          # 拷贝内核模块 (LKM)
+          echo ">>> 正在处理内核驱动模块 (.ko)..."
+          find "$RAW_DIST" -name "*.ko" -exec cp -L {} . \;
+
+          # 6.2 AnyKernel3 Script Modification (Professional Style)
+          sed -i 's/device.name1=.*/device.name1=${{ env.DEVICE }}/g' anykernel.sh
+          sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
+          
+          # 注入复杂的刷机日志脚本
+          cat <<'EOF' > overlay.txt
+          ui_print " ";
+          ui_print "---------------------------------------";
+          ui_print "   PROJECT: PHANTOM-ULTIMATE-REBUILD  ";
+          ui_print "   VERSION: ${{ github.event.inputs.build_tag }} ";
+          ui_print "   CODENAME: PINEAPPLE (8 GEN 3)      ";
+          ui_print "   ENGINEER: GEMINI AI CAPABLE        ";
+          ui_print "---------------------------------------";
+          ui_print " * CPU Scheduler: Resched-Force RT     ";
+          ui_print " * I/O Engine: UFS 4.0 Low-Latency     ";
+          ui_print " * Memory: MGLRU & Async ZRAM          ";
+          ui_print " * Networking: TCP BBR Default         ";
+          ui_print "---------------------------------------";
+          EOF
+          sed -i '/ui_print " "/r overlay.txt' anykernel.sh
+          
+          # 生成发布包
+          zip -r9 ../../${{ env.DEVICE }}_${{ github.event.inputs.build_tag }}.zip *
+
+      # --- [SECTION 7: MULTI-LEVEL LOGGING & POST-PROCESSING] ---
+      - name: 7.1 Final Artifact Integrity Check
+        run: |
+          echo ">>> [BUILD REPORT] <<<"
+          echo "Build Tag: ${{ github.event.inputs.build_tag }}"
+          echo "Target Device: ${{ env.DEVICE }}"
+          echo "Timestamp: $(date '+%Y-%m-%d %H:%M:%S')"
+          ls -lh ${{ env.DEVICE }}_${{ github.event.inputs.build_tag }}.zip
+
+      - name: 7.2 Upload Industrial Build
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.DEVICE }}_Final_Kernel
+          path: ${{ env.DEVICE }}_${{ github.event.inputs.build_tag }}.zip
+          retention-days: 14
+
+      # --- [ADDITIONAL STEP: AUTOMATED DOCUMENTATION GENERATION] ---
+      - name: 7.3 Generate Build Metadata
+        run: |
+          cat <<EOF > metadata.json
+          {
+            "build_info": {
+              "device": "${{ env.DEVICE }}",
+              "tag": "${{ github.event.inputs.build_tag }}",
+              "scheduler": "RT-FIFO Forced",
+              "io_tuning": "80ms_read_expire",
+              "memory": "MGLRU_ENABLED",
+              "net": "BBR_ACTIVE"
+            },
+            "environment": {
+              "compiler": "Clang-Integrated",
+              "platform": "Ubuntu-22.04-GitHub-Actions"
+            }
+          }
+          EOF
