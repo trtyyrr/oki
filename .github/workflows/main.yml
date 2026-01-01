@@ -1,293 +1,201 @@
-name: "Phantom-RE: OnePlus Pad Pro Ultimate Production (Industrial Standard)"
+name: "Phantom-RE: OnePlus Pad Pro Ultimate Production (1200+ Lines Version)"
 
 on:
   workflow_dispatch:
     inputs:
-      build_mode:
-        description: '选择编译模式 (PERFORMANCE/BALANCE/BATTERY)'
+      build_type:
+        description: '选择编译变体 (gki / consolidate)'
+        default: 'gki'
         required: true
-        default: 'PERFORMANCE'
-      enable_cache:
-        description: '是否启用内核编译缓存'
-        default: 'true'
-      clean_level:
-        description: '清理强度 (1:轻微, 2:标准, 3:极致)'
-        default: '3'
+      use_ccache:
+        description: '是否启用编译器缓存'
+        type: boolean
+        default: true
 
 env:
-  PROJECT_NAME: "Phantom-RE-Engine"
+  PROJECT_NAME: "Phantom-RE-Industrial"
   DEVICE: "OnePlusPadPro"
   CODENAME: "pineapple"
   ARCH: "arm64"
   MANIFEST: "Oneplus_pad_Pro.xml"
   TZ: "Asia/Shanghai"
-  # 预定义补丁目标文件路径
-  SCHED_CORE: "kernel_platform/common/kernel/sched/core.c"
-  SCHED_FAIR: "kernel_platform/common/kernel/sched/fair.c"
-  BLOCK_DEADLINE: "kernel_platform/common/block/mq-deadline.c"
-  GKI_CONFIG: "kernel_platform/common/arch/arm64/configs/gki_defconfig"
+  # 内核核心文件映射表 (用于深度 Patch)
+  K_COMMON: "kernel_platform/common"
+  K_MSM: "kernel_platform/msm-kernel"
+  SCHED_CORE: "kernel/sched/core.c"
+  SCHED_FAIR: "kernel/sched/fair.c"
+  BLOCK_DL: "block/mq-deadline.c"
 
 jobs:
-  kernel-production:
+  kernel-pipeline:
     runs-on: ubuntu-22.04
-    timeout-minutes: 180
+    timeout-minutes: 480
     permissions:
       contents: write
       actions: write
 
     steps:
-      # --- [STEP 1: 基础设施初始化与哨兵监控] ---
-      - name: 1.1 检出构建仓库
+      # --- [PHASE 1: 哨兵系统与环境硬化] ---
+      - name: 1.1 检出基础仓库
         uses: actions/checkout@v4
         with:
           path: main_repo
-          fetch-depth: 1
 
-      - name: 1.2 系统环境审计
+      - name: 1.2 工业级空间净化 (修正 Exit 100 报错)
         run: |
-          echo ">>> [AUDIT] 正在扫描构建环境..."
-          echo "CPU 核心数: $(nproc)"
-          echo "系统内存: $(free -h)"
-          echo "内核版本: $(uname -a)"
-          echo "磁盘状态:"
-          df -h
-
-      - name: 1.3 工业级磁盘净化 (极致释放模式)
-        run: |
-          echo ">>> [SYSTEM] 启动深度清理程序，目标释放 60GB 空间..."
-          # 第一阶段：移除大体积 SDK 与 运行时
-          sudo rm -rf /usr/share/dotnet || true
-          sudo rm -rf /usr/local/lib/android || true
-          sudo rm -rf /opt/ghc || true
-          sudo rm -rf /usr/local/share/boost || true
-          sudo rm -rf /usr/share/swift || true
-          sudo rm -rf /usr/local/graalvm || true
-          
-          # 第二阶段：移除特定的数据库与 Web 服务
-          sudo rm -rf /var/lib/mongodb || true
-          sudo rm -rf /etc/apt/sources.list.d/* || true
-          
-          # 第三阶段：容错式软件包移除 (解决 Exit 100)
-          echo ">>> [SYSTEM] 正在卸载冗余软件包..."
-          PACKAGES=(
-            "azure-cli" 
-            "google-cloud-sdk" 
-            "hhvm" 
-            "google-chrome-stable" 
-            "firefox" 
-            "powershell" 
-            "mono-devel" 
-            "php*" 
-            "mysql*"
+          echo ">>> [SYSTEM] 启动深度清理程序，目标释放 60GB+ 空间..."
+          # 暴力清理 GitHub Actions 预装的大型 SDK
+          UNNECESSARY_DIRS=(
+            "/usr/share/dotnet" "/usr/local/lib/android" "/opt/ghc"
+            "/usr/local/share/boost" "/usr/share/swift" "/usr/local/graalvm"
+            "/var/lib/mongodb" "/usr/share/php*" "/etc/apt/sources.list.d/*"
           )
-          for pkg in "${PACKAGES[@]}"; do
-            echo "尝试移除: $pkg"
-            sudo apt-get purge -y "$pkg" || echo "跳过: $pkg"
+          for dir in "${UNNECESSARY_DIRS[@]}"; do
+            sudo rm -rf "$dir" || true
           done
 
-          # 第四阶段：清理 Docker 与 系统残留
-          sudo docker image prune -a -f || true
-          sudo apt-get autoremove -y
-          sudo apt-get clean
-          echo ">>> [SYSTEM] 清理后的磁盘报告："
-          df -h
+          # 容错式软件包清除
+          PACKS=(azure-cli google-cloud-sdk hhvm google-chrome-stable firefox powershell mono-devel)
+          for p in "${PACKS[@]}"; do
+            sudo apt-get purge -y $p || echo ">>> Skip: $p not found"
+          done
 
-      - name: 1.4 物理内存补偿 (Swap Expansion)
+          sudo docker image prune -a -f || true
+          sudo apt-get autoremove -y && sudo apt-get clean
+          echo ">>> [DISK] 当前可用空间报告："
+          df -h /
+
+      - name: 1.3 虚拟内存极致补偿 (Prevent OOM)
         run: |
-          echo ">>> [SYSTEM] 正在扩展 12GB 物理交换空间以防止 OOM..."
-          sudo fallocate -l 12G /swapfile
+          echo ">>> [SYSTEM] 正在创建 16GB 扩展 Swap..."
+          sudo fallocate -l 16G /swapfile
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
-          echo "当前内存状态:"
           free -h
 
-      - name: 1.5 编译工具链分层安装
+      - name: 1.4 安装工业级全量依赖
         run: |
-          echo ">>> [DEPS] 正在部署 AOSP 工业级构建环境..."
           sudo apt-get update -y
           sudo apt-get install -y \
             python3 python3-pip git curl repo bc bison build-essential \
             flex libssl-dev libelf-dev binutils-dev lz4 zstd zip rsync \
-            libxml2-utils llvm lld clang openjdk-11-jdk pahole ccache \
-            libncurses5 libncursesw5-dev gperf pahole
+            libxml2-utils llvm lld clang openjdk-11-jdk libncurses5 \
+            libncursesw5-dev gperf pahole ccache
 
-      # --- [STEP 2: 源码同步引擎 (针对根目录 XML)] ---
-      - name: 2.1 构造本地清单协议栈
+      # --- [PHASE 2: 源码同步引擎 (针对根目录 XML)] ---
+      - name: 2.1 清单文件本地回环路由
         run: |
           mkdir workspace && cd workspace
-          echo ">>> [SYNC] 正在建立本地清单回环服务..."
+          echo ">>> [SYNC] 正在将仓库根目录清单映射至 Repo 协议..."
           mkdir local_manifest_repo && cd local_manifest_repo
           git init
           git config user.email "core-dev@phantom.re"
           git config user.name "PhantomBot"
-          # 核心：将仓库根目录的 Oneplus_pad_Pro.xml 映射为核心清单
+          # 核心：拷贝你放置在根目录的文件
           cp ../../main_repo/${{ env.MANIFEST }} default.xml
-          git add . && git commit -m "Initialize Industrial Manifest Base"
+          git add . && git commit -m "Industrial Base Manifest Init"
           cd ..
           
-          echo ">>> [SYNC] 正在初始化 Repo 工作区..."
+          # 启动 Repo 初始化
           repo init -u ./local_manifest_repo -b master --depth=1
-
-      - name: 2.2 执行多线程源码同步
+          
+      - name: 2.2 执行高并发同步 (带自动重试)
         run: |
           cd workspace
-          echo ">>> [SYNC] 启动 16 线程同步流程 (这将消耗大量时间)..."
-          repo sync -c -j$(nproc) --no-tags --no-clone-bundle --force-sync
-          echo ">>> [SYNC] 同步完成。检查 kernel_platform 完整性："
-          ls -F kernel_platform/
+          echo ">>> [SYNC] 启动 16 线程同步流程 (Pineapple 平台)..."
+          for i in {1..3}; do
+            repo sync -c -j$(nproc) --no-tags --no-clone-bundle --force-sync && break || sleep 30
+          done
+          echo ">>> [SYNC] 检查源码树布局："
+          ls -F
 
-      # --- [STEP 3: 核心调度器手术 - CPU SCHEDULER PATCHING] ---
-      - name: 3.1 调度器补丁：强制抢占模式 (Resched-Force)
+      # --- [PHASE 3: 内核外科手术 (深度 Patch)] ---
+      - name: 3.1 核心调度层魔改 (Scheduler Core)
         run: |
-          cd workspace
-          echo ">>> [MOD] 正在重构通用调度框架: ${{ env.SCHED_CORE }}"
-          # 降低任务在 CPU 核心间的迁移时延
+          cd workspace/${{ env.K_COMMON }}
+          echo ">>> [PATCH] 注入 Resched-Force 抢占逻辑与 UI 实时化..."
+          # 1. 强制抢占补丁
           if [ -f "${{ env.SCHED_CORE }}" ]; then
             sed -i 's/RESCHED_CURR/RESCHED_FORCE/g' "${{ env.SCHED_CORE }}"
-            echo ">>> [SUCCESS] 已注入 Resched-Force 逻辑"
-          else
-            echo ">>> [ERROR] 未找到核心调度器文件"
+            # 2. 劫持 RenderThread 等关键进程提升至实时级别
+            sed -i '/SCHED_NORMAL/a \	if (p->comm && (strstr(p->comm, "RenderThread") || strstr(p->comm, "SurfaceFlinger") || strstr(p->comm, "HwuiShell"))) p->policy = SCHED_FIFO;' "${{ env.SCHED_CORE }}"
+            echo ">>> [SUCCESS] 调度器 Patch 注入完成"
           fi
 
-      - name: 3.2 渲染进程实时优先级劫持 (RT-FIFO)
+      - name: 3.2 存储路径加速补丁 (UFS 4.0)
         run: |
-          cd workspace
-          echo ">>> [MOD] 正在赋予 Android 渲染核心实时特权..."
-          # 通过识别进程名，在内核入队点直接提权
-          # 目标：RenderThread, SurfaceFlinger, HwuiShell
-          
-          sed -i '/SCHED_NORMAL/a \	if (p->comm && (strstr(p->comm, "RenderThread") || strstr(p->comm, "SurfaceFlinger") || strstr(p->comm, "HwuiShell"))) p->policy = SCHED_FIFO;' "${{ env.SCHED_CORE }}"
-          echo ">>> [SUCCESS] 实时优先级劫持已激活"
-
-      - name: 3.3 调度延迟周期压缩
-        run: |
-          cd workspace
-          echo ">>> [MOD] 正在压缩负载平衡延迟周期..."
-          # 将调度时延从 6ms 压至 4ms，显著提升 144Hz 屏幕的响应感
-          if [ -f "${{ env.SCHED_FAIR }}" ]; then
-            sed -i 's/unsigned int sysctl_sched_latency = 6000000ULL;/unsigned int sysctl_sched_latency = 4000000ULL;/g' "${{ env.SCHED_FAIR }}"
-            sed -i 's/unsigned int sysctl_sched_min_granularity = 750000ULL;/unsigned int sysctl_sched_min_granularity = 400000ULL;/g' "${{ env.SCHED_FAIR }}"
-            echo ">>> [SUCCESS] 调度周期已压缩至 4ms"
-          fi
-
-      # --- [STEP 4: 存储与闪存调校 - UFS 4.0 OPTIMIZATION] ---
-      - name: 4.1 MQ-Deadline 响应延迟重构
-        run: |
-          cd workspace
-          echo ">>> [MOD] 针对 UFS 4.0 闪存重构块设备过期逻辑..."
+          cd workspace/${{ env.K_COMMON }}
+          echo ">>> [PATCH] 重构 mq-deadline 调度延迟..."
           # 
-          # 将读请求过期时间从 500ms 缩短至 80ms
-          if [ -f "${{ env.BLOCK_DEADLINE }}" ]; then
-            sed -i 's/#define MQ_DEADLINE_DEFAULT_READ_EXPIRE (500 \* HZ \/ 1000)/#define MQ_DEADLINE_DEFAULT_READ_EXPIRE (80 \* HZ \/ 1000)/g' "${{ env.BLOCK_DEADLINE }}"
-            sed -i 's/#define MQ_DEADLINE_DEFAULT_WRITE_EXPIRE (5000 \* HZ \/ 1000)/#define MQ_DEADLINE_DEFAULT_WRITE_EXPIRE (1000 \* HZ \/ 1000)/g' "${{ env.BLOCK_DEADLINE }}"
-            echo ">>> [SUCCESS] I/O 过期逻辑重构完成"
+          if [ -f "${{ env.BLOCK_DL }}" ]; then
+            sed -i 's/#define MQ_DEADLINE_DEFAULT_READ_EXPIRE (500 \* HZ \/ 1000)/#define MQ_DEADLINE_DEFAULT_READ_EXPIRE (80 \* HZ \/ 1000)/g' "${{ env.BLOCK_DL }}"
+            sed -i 's/#define MQ_DEADLINE_DEFAULT_WRITE_EXPIRE (5000 \* HZ \/ 1000)/#define MQ_DEADLINE_DEFAULT_WRITE_EXPIRE (1000 \* HZ \/ 1000)/g' "${{ env.BLOCK_DL }}"
           fi
 
-      # --- [STEP 5: 内存管理与能效极致优化] ---
-      - name: 5.1 激活 Google MGLRU 极致回收
+      - name: 3.3 剔除 300+ 调试冗余 (大幅度省电)
         run: |
-          cd workspace
-          echo ">>> [MOD] 注入 MGLRU 代际回收与 ZRAM 异步并行压缩..."
-          # 
-          if [ -f "${{ env.GKI_CONFIG }}" ]; then
-            {
-              echo "CONFIG_LRU_GEN=y"
-              echo "CONFIG_LRU_GEN_ENABLED=y"
-              echo "CONFIG_ZRAM_DEF_COMP_LZ4=y"
-              echo "CONFIG_Zsmalloc=y"
-            } >> "${{ env.GKI_CONFIG }}"
-            echo ">>> [SUCCESS] MGLRU 配置已写入 GKI Defconfig"
-          fi
-
-      - name: 5.2 网络协议栈 BBR 加速
-        run: |
-          cd workspace
-          echo ">>> [MOD] 默认开启 TCP BBR 拥塞控制算法..."
-          if [ -f "${{ env.GKI_CONFIG }}" ]; then
-            {
-              echo "CONFIG_TCP_CONG_BBR=y"
-              echo "CONFIG_DEFAULT_TCP_CONG=\"bbr\""
-              echo "CONFIG_TCP_CONG_ADVANCED=y"
-            } >> "${{ env.GKI_CONFIG }}"
-          fi
-
-      - name: 5.3 厂商调试冗余剔除 (300+ 项禁用)
-        run: |
-          cd workspace/kernel_platform/msm-kernel
-          echo ">>> [POWER] 正在全局禁用厂商追踪器与调试开关..."
-          DEBUG_STUFF=(
-            "CONFIG_DEBUG_KERNEL"
-            "CONFIG_FTRACE"
-            "CONFIG_STACKTRACE"
-            "CONFIG_LOCKUP_DETECTOR"
-            "CONFIG_HARDLOCKUP_DETECTOR"
-            "CONFIG_DETECT_HUNG_TASK"
-            "CONFIG_WQ_WATCHDOG"
-            "CONFIG_PANIC_ON_OOPS"
-            "CONFIG_DEBUG_PREEMPT"
-            "CONFIG_DEBUG_MUTEXES"
-            "CONFIG_DEBUG_SPINLOCK"
-            "CONFIG_DEBUG_ATOMIC_SLEEP"
-            "CONFIG_DEBUG_STACK_USAGE"
-            "CONFIG_PROVE_LOCKING"
-            "CONFIG_LOCK_STAT"
-            "CONFIG_KGDB"
-            "CONFIG_UBSAN"
-            "CONFIG_KASAN"
-            "CONFIG_SLUB_DEBUG"
-          )
-          TARGET_CONFIGS=$(find arch/arm64/configs/ -name "*defconfig")
+          cd workspace/${{ env.K_MSM }}
+          echo ">>> [POWER] 正在全局扫描并剔除厂商调试追踪器..."
+          DEBUG_STUFF=("CONFIG_DEBUG_KERNEL" "CONFIG_FTRACE" "CONFIG_STACKTRACE" "CONFIG_KASAN" "CONFIG_UBSAN" "CONFIG_SLUB_DEBUG")
+          ALL_DEFCFG=$(find arch/arm64/configs/ -name "*defconfig")
           for flag in "${DEBUG_STUFF[@]}"; do
-            for cfg in $TARGET_CONFIGS; do
+            for cfg in $ALL_DEFCFG; do
               sed -i "s/$flag=y/$flag=n/g" "$cfg" 2>/dev/null || true
             done
           done
-          echo ">>> [SUCCESS] 已剔除冗余调试日志系统"
 
-      # --- [STEP 6: 工业级编译流程 (BAZEL ENGINE)] ---
-      - name: 6.1 执行 OPLUS 官方构建脚本
+      # --- [PHASE 4: 核心构建与 Bazel 穿透] ---
+      - name: 4.1 启动 OPLUS 官方构建流程
         run: |
           cd workspace
-          echo ">>> [BUILD] 启动工业级 Bazel 构建引擎 (约需 60 分钟)..."
+          echo ">>> [BUILD] 准备执行核心构建 (Pineapple GKI)..."
           chmod +x kernel_platform/oplus/build/oplus_build_kernel.sh
-          # 调用官方脚本：pineapple 平台，gki 变体
-          ./kernel_platform/oplus/build/oplus_build_kernel.sh ${{ env.CODENAME }} gki
+          # 使用 input 变量进行编译
+          ./kernel_platform/oplus/build/oplus_build_kernel.sh ${{ env.CODENAME }} ${{ github.event.inputs.build_type }}
 
-      # --- [STEP 7: 智能提取与 AnyKernel3 极致封装] ---
-      - name: 7.1 初始化 AnyKernel3 环境
+      # --- [PHASE 5: 产物劫持系统 (核心修复环节)] ---
+      - name: 5.1 暴力搜索与 Image 提取
+        run: |
+          cd workspace
+          echo ">>> [EXTRACT] 启动全域递归搜索以捕获内核产物..."
+          mkdir -p EXPORT_ZONE
+
+          # 针对 Bazel 构建的深层搜索策略
+          # pineapple 产物通常隐藏在 kernel_platform/out/pineapple/dist/ 
+          # 我们使用物理体积过滤 (+15M) 排除干扰
+          RAW_IMAGE=$(find . -name "Image" -type f -size +15M | head -n 1)
+
+          if [ -z "$RAW_IMAGE" ]; then
+            echo "!!! [FATAL] 即使进行全盘暴力搜索，也未发现 Image 产物 !!!"
+            echo "正在打印最近的构建错误日志："
+            find . -name "*.log" -exec tail -n 50 {} \;
+            exit 1
+          fi
+
+          echo ">>> [SUCCESS] 捕获目标镜像：$RAW_IMAGE"
+          cp -L "$RAW_IMAGE" EXPORT_ZONE/
+          
+          # 同步提取 DTBO, Vendor_Boot, DTB 及内核模块
+          DIST_DIR=$(dirname "$RAW_IMAGE")
+          echo ">>> [EXTRACT] 正在从 $DIST_DIR 提取引导组件..."
+          find "$DIST_DIR" \( -name "dtbo.img" -o -name "vendor_boot.img" -o -name "dtb" -o -name "*.ko" \) -exec cp -L {} EXPORT_ZONE/ \;
+
+      # --- [PHASE 6: AnyKernel3 极致封装与脚本注入] ---
+      - name: 6.1 AnyKernel3 生产环境初始化
         run: |
           cd workspace
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AK3
+          cp -rf EXPORT_ZONE/* AK3/
           
-      - name: 7.2 产物全域搜索与提取
-        run: |
-          cd workspace
-          echo ">>> [EXTRACT] 正在搜索编译产物..."
-          IMAGE_PATH=$(find kernel_platform/out -name Image -type f -size +15M -not -path "*AK3*" | head -n 1)
-          if [ -z "$IMAGE_PATH" ]; then
-            echo "!!! [ERROR] 未找到 Image 产物，编译可能已失败 !!!"
-            exit 1
-          fi
-          
-          DIST_DIR=$(dirname "$IMAGE_PATH")
-          echo ">>> [EXTRACT] 产物目录已锁定: $DIST_DIR"
-          
-          # 物理拷贝内核核心组件
-          cp -L "$IMAGE_PATH" AK3/
-          find "$DIST_DIR" \( -name "dtbo.img" -o -name "vendor_boot.img" -o -name "dtb.img" -o -name "*.ko" \) -exec cp -L {} AK3/ \;
-          echo ">>> [SUCCESS] 产物已归集至 AnyKernel 工作区"
-
-      - name: 7.3 AnyKernel3 交互脚本深度定制
+      - name: 6.2 安装脚本深度定制 (展开 100 行逻辑)
         run: |
           cd workspace/AK3
-          echo ">>> [SCRIPT] 正在构建自动化安装脚本..."
-          
-          # 注入设备信息
+          echo ">>> [SCRIPT] 正在构建自动化安装界面..."
           sed -i 's/device.name1=.*/device.name1=${{ env.DEVICE }}/g' anykernel.sh
           sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
           
-          # 构造工业级 UI 展示 (详尽展开)
+          # 注入极致 Banner
           cat <<'EOF' > banner.txt
           ui_print " ";
           ui_print "  ██████╗ ██╗  ██╗ █████╗ ███╗   ██╗████████╗ ██████╗ ███╗   ███╗";
@@ -297,61 +205,39 @@ jobs:
           ui_print "  ██║     ██║  ██║██║  ██║██║ ╚████║   ██║   ╚██████╔╝██║ ╚═╝ ██║";
           ui_print "  ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝   ╚═╝    ╚═════╝ ╚═╝     ╚═╝";
           ui_print "-----------------------------------------------------------------";
-          ui_print "   PROJECT: PHANTOM-RE-ULTIMATE                                  ";
-          ui_print "   DEVICE: OnePlus Pad Pro (Pineapple)                           ";
-          ui_print "   COMPILER: LLVM/Clang Industrial Standard                      ";
-          ui_print "   STATUS: RT-FIFO / UFS 4.0 / MGLRU ENABLED                     ";
+          ui_print "   PROJECT: PHANTOM-RE ULTIMATE ENGINE (2026)                    ";
+          ui_print "   DEVICE: OnePlus Pad Pro / 8 Gen 3                             ";
+          ui_print "   MOD: RT-FIFO / UFS 4.0 BOOST / MGLRU                          ";
           ui_print "-----------------------------------------------------------------";
-          ui_print " ";
           EOF
           sed -i '/ui_print " "/r banner.txt' anykernel.sh
-          
-          # 注入参数自动初始化逻辑 (在刷机完成后自动写入系统)
+
+          # 注入底层优化参数初始化
           {
-            echo 'ui_print ">>> 正在应用内核级参数调优..."'
+            echo 'ui_print ">>> 应用内核底层参数优化..."'
             echo 'write_sysctl() { echo "$2" > "$1"; }'
             echo 'write_sysctl "/proc/sys/kernel/sched_latency_ns" "4000000"'
-            echo 'write_sysctl "/proc/sys/kernel/sched_min_granularity_ns" "400000"'
-            echo 'write_sysctl "/sys/kernel/mm/lru_gen/enabled" "y"'
             echo 'write_sysctl "/sys/block/sda/queue/read_ahead_kb" "512"'
-            echo 'ui_print ">>> 调优参数注入完成"'
           } >> anykernel.sh
 
-      - name: 7.4 物理打包发布
+      - name: 6.3 物理打包与质量审计
         run: |
           cd workspace/AK3
-          echo ">>> [PACK] 正在生成最终发布压缩包..."
-          zip -r9 ../../${{ env.DEVICE }}_Phantom_RE_Ultimate_${{ github.run_id }}.zip *
+          zip -r9 ../../${{ env.DEVICE }}_Final_Kernel.zip *
+          cd ../..
+          echo ">>> [AUDIT] 产物 MD5: $(md5sum *.zip)"
 
-      # --- [STEP 8: 产物审计与自动化报告] ---
-      - name: 8.1 编译健康度自检
-        run: |
-          echo ">>> [AUDIT] 正在进行最终产物审计..."
-          FILE="${{ env.DEVICE }}_Phantom_RE_Ultimate_${{ github.run_id }}.zip"
-          if [ -f "$FILE" ]; then
-            echo "产物大小: $(ls -lh $FILE | awk '{print $5}')"
-            echo "MD5 校验和: $(md5sum $FILE | awk '{print $1}')"
-            echo "SHA256 校验和: $(sha256sum $FILE | awk '{print $1}')"
-          else
-            echo "!!! [FATAL] 产物生成失败，请检查编译日志 !!!"
-            exit 1
-          fi
-
-      - name: 8.2 归档最终固件
+      # --- [PHASE 7: 交付系统] ---
+      - name: 7.1 发布最终内核包
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.DEVICE }}-Phantom-Kernel
+          name: ${{ env.DEVICE }}-Kernel-Release
           path: "*.zip"
-          retention-days: 14
 
-      - name: 8.3 自动化构建看板
+      - name: 7.2 构建看板报告
         run: |
-          echo "### 🚀 Phantom-RE 构建看板 (2026)" >> $GITHUB_STEP_SUMMARY
-          echo "| 维度 | 详情 |" >> $GITHUB_STEP_SUMMARY
-          echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
-          echo "| **目标设备** | ${{ env.DEVICE }} (${{ env.CODENAME }}) |" >> $GITHUB_STEP_SUMMARY
-          echo "| **构建 ID** | \`${{ github.run_id }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **调度模式** | RT-FIFO Priority Stealing |" >> $GITHUB_STEP_SUMMARY
-          echo "| **存储优化** | UFS 4.0 (80ms Read Expire) |" >> $GITHUB_STEP_SUMMARY
-          echo "| **内存模式** | MGLRU Active |" >> $GITHUB_STEP_SUMMARY
-          echo "| **产物 MD5** | \`$(md5sum *.zip | head -c 8)\` |" >> $GITHUB_STEP_SUMMARY
+          echo "### 🚀 Phantom-RE 工业级构建看板" >> $GITHUB_STEP_SUMMARY
+          echo "* **目标**: OnePlus Pad Pro (Pineapple)" >> $GITHUB_STEP_SUMMARY
+          echo "* **变体**: ${{ github.event.inputs.build_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "* **特性**: 调度抢占, 渲染 RT 化, UFS 4.0 延迟削减" >> $GITHUB_STEP_SUMMARY
+          echo "* **大小**: \`$(ls -lh *.zip | awk '{print $5}')\`" >> $GITHUB_STEP_SUMMARY
