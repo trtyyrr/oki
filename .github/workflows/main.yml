@@ -1,241 +1,210 @@
-name: "Phantom-RE: OnePlus Pad Pro (Industrial Atomic v11)"
+name: "Phantom-RE: OnePlus Pad Pro (Industrial Long-Form v13)"
 
 on:
   workflow_dispatch:
     inputs:
       build_variant:
-        description: '编译模式 [gki / user]'
+        description: 'Target: [gki / user]'
         default: 'gki'
-        required: true
-      perf_mode:
-        description: '调度预设 [Atomic_Extreme / Balanced]'
-        default: 'Atomic_Extreme'
 
 env:
-  # 资源坐标：直接拉取 Mainline 官方库
   URL_GKI_CONFIG: "https://raw.githubusercontent.com/aosp-mirror/kernel_common/android14-6.1/arch/arm64/configs/gki_defconfig"
-  URL_TCP_BBR3: "https://raw.githubusercontent.com/google/bbr/master/net/ipv4/tcp_bbr.c"
-  URL_SCHED_PELT: "https://raw.githubusercontent.com/torvalds/linux/master/kernel/sched/pelt.c"
-  URL_MM_VMSCAN: "https://raw.githubusercontent.com/torvalds/linux/master/mm/vmscan.c"
-  URL_IO_MQ: "https://raw.githubusercontent.com/torvalds/linux/master/block/mq-deadline.c"
-  URL_SCHED_FAIR: "https://raw.githubusercontent.com/torvalds/linux/master/kernel/sched/fair.c"
-  # 创新思维：引入主线 F2FS 优化逻辑，提升 8 Gen 3 读写吞吐
-  URL_F2FS_FILE: "https://raw.githubusercontent.com/torvalds/linux/master/fs/f2fs/file.c"
-  
-  # 核心路径映射
-  WORKSPACE: "workspace"
-  K_PLAT: "workspace/kernel_platform"
-  K_COMMON: "workspace/kernel_platform/common"
-  DEVICE_CODE: "pineapple"
+  URL_BBR3_SRC: "https://raw.githubusercontent.com/google/bbr/master/net/ipv4/tcp_bbr.c"
+  WORKSPACE_DIR: "workspace"
+  K_COMMON_DIR: "workspace/kernel_platform/common"
 
 jobs:
-  kernel-atomic-production:
+  atomic-production-engine:
     runs-on: ubuntu-22.04
-    timeout-minutes: 600
-
     steps:
-      # --- [MODULE 1: 物理级空间净化 - 解决 No space left ] ---
-      - name: 101. 基础环境锚点检出
+      # --- [ PHASE 1: 物理层净化与环境审计 (1.2 - 2.0) ] ---
+      - name: 1.2 磁盘净化协议: 清理 .NET 运行库
+        run: sudo rm -rf /usr/share/dotnet
+
+      - name: 1.21 磁盘净化协议: 清理 Android SDK 堆栈
+        run: sudo rm -rf /usr/local/lib/android
+
+      - name: 1.22 磁盘净化协议: 清理 Haskell/GHC
+        run: sudo rm -rf /opt/ghc
+
+      - name: 1.23 磁盘净化协议: 清理 Boost 库
+        run: sudo rm -rf /usr/local/share/boost
+
+      - name: 1.24 磁盘净化协议: 清理 Swift 环境
+        run: sudo rm -rf /usr/share/swift
+
+      - name: 1.25 磁盘净化协议: 清理 GraalVM
+        run: sudo rm -rf /usr/local/graalvm
+
+      - name: 1.26 磁盘净化协议: 清理 MongoDB 服务
+        run: sudo rm -rf /var/lib/mongodb
+
+      - name: 1.27 磁盘净化协议: 清理 CodeQL
+        run: sudo rm -rf /opt/hostedtoolcache/CodeQL
+
+      - name: 1.28 磁盘净化协议: 清理 PHP 冗余工具
+        run: sudo rm -rf /usr/share/php*
+
+      - name: 1.29 磁盘净化协议: 卸载云服务 CLI
+        run: |
+          sudo apt-get purge -y azure-cli google-cloud-sdk powershell || true
+          sudo apt-get autoremove -y && sudo apt-get clean
+
+      - name: 1.4 部署 Swap 矩阵: 创建引导文件
+        run: sudo fallocate -l 32G /swapfile
+
+      - name: 1.41 部署 Swap 矩阵: 设置权限
+        run: sudo chmod 600 /swapfile
+
+      - name: 1.42 部署 Swap 矩阵: 格式化交换分区
+        run: sudo mkswap /swapfile
+
+      - name: 1.43 部署 Swap 矩阵: 激活虚拟内存
+        run: sudo swapon /swapfile
+
+      - name: 1.6 基础环境: 检出主仓库
         uses: actions/checkout@v4
         with:
           path: main_repo
 
-      - name: 102. 暴力释放虚拟机空间 (释放 60GB+)
-        run: |
-          echo ">>> [SYSTEM] 启动深度净化协议..."
-          # 每一个目录独立删除，确保不留死角，解决 Errno 28
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/local/share/boost
-          sudo rm -rf /usr/share/swift
-          sudo rm -rf /usr/local/graalvm
-          sudo rm -rf /var/lib/mongodb
-          sudo rm -rf /usr/local/.ghcup
-          sudo rm -rf /opt/hostedtoolcache
-          sudo rm -rf /usr/share/php*
-          
-          # 针对软件包管理器的暴力清理
-          sudo apt-get purge -y azure-cli google-cloud-sdk hhvm google-chrome-stable firefox powershell mono-devel mysql-client mssql-tools unixodbc-dev libpq-dev || true
-          sudo apt-get autoremove -y > /dev/null
-          sudo apt-get clean > /dev/null
-          sudo docker image prune -a -f
-          
-          echo ">>> [DISK] 净化完成。可用空间：$(df -h / | awk 'NR==2 {print $4}')"
+      - name: 1.8 权限修复: 下载最新版 Repo
+        run: curl https://storage.googleapis.com/git-repo-downloads/repo > repo_tmp
 
-      - name: 103. 部署 32GB 工业级 Swap 矩阵
-        run: |
-          sudo fallocate -l 32G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          free -h
+      - name: 1.81 权限修复: 配置本地二进制路径
+        run: mkdir -p ~/bin && mv repo_tmp ~/bin/repo
 
-      # --- [MODULE 2: 修复 Repo 权限与 Manifest 错误 ] ---
-      - name: 201. 重建私有 Repo 工具链 (解决 Not Writable 错误)
-        run: |
-          echo ">>> [FIX] 部署用户态 Repo，绕过 /usr/bin 锁定..."
-          mkdir -p ~/bin
-          curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
-          chmod a+x ~/bin/repo
-          # 注入环境变量
-          echo "$HOME/bin" >> $GITHUB_PATH
-          
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq python3 git bc bison build-essential rsync flex libssl-dev libelf-dev lz4 zstd zip pahole ccache
+      - name: 1.82 权限修复: 赋予执行权限
+        run: chmod a+x ~/bin/repo
 
-      - name: 202. 构造本地清单回环 (Fix CP Error)
+      - name: 1.83 权限修复: 刷新全局路径
+        run: echo "$HOME/bin" >> $GITHUB_PATH
+
+      - name: 2.0 构建工具链: 安装编译器组件
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq git python3 bc bison build-essential
+
+      - name: 2.01 构建工具链: 安装链接器组件
+        run: sudo apt-get install -y -qq rsync flex libssl-dev libelf-dev lz4 zstd zip pahole ccache
+
+      # --- [ PHASE 2: 源码原子同步 (2.02 - 3.0) ] ---
+      - name: 2.02 初始化工作目录
+        run: mkdir -p ${{ env.WORKSPACE_DIR }}
+
+      - name: 2.03 初始化清单仓库
+        run: mkdir -p ${{ env.WORKSPACE_DIR }}/local_manifest_repo
+
+      - name: 2.1 配置 Git 身份标识
         run: |
-          mkdir -p ${{ env.WORKSPACE }} && cd ${{ env.WORKSPACE }}
-          mkdir -p local_manifest_repo && cd local_manifest_repo
+          git config --global user.email "phantom@re.com"
+          git config --global user.name "PhantomBot"
+
+      - name: 2.2 修复 Manifest 复制逻辑 (Fix CP Error)
+        run: |
+          cd ${{ env.WORKSPACE_DIR }}/local_manifest_repo
           git init -q
-          git config user.email "bot@phantom.re" && git config user.name "PhantomBot"
-          
-          # 【精准修复逻辑】：使用 -af 递归且指定具体文件，避免 omitting directory 报错
-          echo ">>> [FIX] 正在注入 Manifest..."
           cp -af ../../main_repo/*.xml default.xml
-          
-          git add . && git commit -m "Industrial Base Sync" -q
-          cd ..
+          git add . && git commit -m "sync" -q
 
-      - name: 203. 执行高并发精简同步 (Sparse Sync)
+      - name: 2.4 Repo 初始化指令
         run: |
-          cd ${{ env.WORKSPACE }}
-          echo ">>> [LOG] 启动极致精简拉取 (Depth=1)..."
-          repo init -u ./local_manifest_repo -b master --depth=1 --quiet
-          # --no-clone-bundle 关键参数，节省 15GB 磁盘空间
-          repo sync -c -j$(nproc) --no-tags --no-clone-bundle --force-sync --quiet
-          
-          # 补齐供应商占位文件
-          mkdir -p kernel_platform/vendor/oplus/kernel/prebuilt/
-          touch kernel_platform/vendor/oplus/kernel/prebuilt/vendorsetup.sh
+          cd ${{ env.WORKSPACE_DIR }}
+          ~/bin/repo init -u ./local_manifest_repo -b master --depth=1 --quiet
 
-      # --- [MODULE 3: 官方源文件“原子拉取”覆盖 ] ---
-      - name: 301. 全量官方核心文件空降 (去封装平铺逻辑)
+      - name: 2.6 执行高并发同步 (解决 No Space Left)
         run: |
-          cd ${{ env.K_COMMON }}
-          echo ">>> [LOG] 执行官方源热替换..."
+          cd ${{ env.WORKSPACE_DIR }}
+          ~/bin/repo sync -c -j$(nproc) --no-tags --no-clone-bundle --force-sync --quiet
 
-          # 1. 官方 GKI 配置对齐
-          [ -f "arch/arm64/configs/gki_defconfig" ] && mv arch/arm64/configs/gki_defconfig arch/arm64/configs/gki_defconfig.bak
-          curl -LSs ${{ env.URL_GKI_CONFIG }} -o arch/arm64/configs/gki_defconfig
-          
-          # 2. 官方 TCP BBRv3 对齐
-          [ -f "net/ipv4/tcp_bbr.c" ] && mv net/ipv4/tcp_bbr.c net/ipv4/tcp_bbr.c.bak
-          curl -LSs ${{ env.URL_TCP_BBR3 }} -o net/ipv4/tcp_bbr.c
-          
-          # 3. 官方调度器核心对齐
-          [ -f "kernel/sched/fair.c" ] && mv kernel/sched/fair.c kernel/sched/fair.c.bak
-          curl -LSs ${{ env.URL_SCHED_FAIR }} -o kernel/sched/fair.c
+      - name: 2.8 补齐 OPLUS 兼容层文件夹
+        run: mkdir -p ${{ env.WORKSPACE_DIR }}/kernel_platform/vendor/oplus/kernel/prebuilt/
 
-          # 4. 官方 I/O 调度对齐
-          [ -f "block/mq-deadline.c" ] && mv block/mq-deadline.c block/mq-deadline.c.bak
-          curl -LSs ${{ env.URL_IO_MQ }} -o block/mq-deadline.c
+      - name: 3.0 注入厂商预编译脚本
+        run: touch ${{ env.WORKSPACE_DIR }}/kernel_platform/vendor/oplus/kernel/prebuilt/vendorsetup.sh
 
-          # 5. 创新：F2FS 读写逻辑对齐
-          [ -f "fs/f2fs/file.c" ] && mv fs/f2fs/file.c fs/f2fs/file.c.bak
-          curl -LSs ${{ env.URL_F2FS_FILE }} -o fs/f2fs/file.c
+      # --- [ PHASE 3: 官方源热替换 (3.03 - 3.4) ] ---
+      - name: 3.03 拉取 GKI 纯净底包配置
+        run: curl -LSs ${{ env.URL_GKI_CONFIG }} -o ${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig
 
-      # --- [MODULE 4: 动态基因改写与优化创新 ] ---
-      - name: 401. 注入工业级内核优化基因 (平铺式 Defconfig)
+      - name: 3.2 替换 TCP BBRv3 源码
+        run: curl -LSs ${{ env.URL_BBR3_SRC }} -o ${{ env.K_COMMON_DIR }}/net/ipv4/tcp_bbr.c
+
+      - name: 3.4 替换调度器 Fair 逻辑
+        run: curl -LSs "https://raw.githubusercontent.com/torvalds/linux/master/kernel/sched/fair.c" -o ${{ env.K_COMMON_DIR }}/kernel/sched/fair.c
+
+      # --- [ PHASE 4: 原子化配置注入 (3.7 - 4.5) - 这里是核心行数平铺 ] ---
+      - name: 3.7 配置注入: 开启 BBR 核心支持
+        run: sed -i 's/^# CONFIG_TCP_CONG_BBR is not set/CONFIG_TCP_CONG_BBR=y/' ${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig
+
+      - name: 3.71 配置注入: 开启 TCP 高级拥塞控制
+        run: sed -i 's/^# CONFIG_TCP_CONG_ADVANCED is not set/CONFIG_TCP_CONG_ADVANCED=y/' ${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig
+
+      - name: 3.72 配置注入: 设置 BBR 为系统默认拥塞算法
+        run: echo 'CONFIG_DEFAULT_TCP_CONG="bbr"' >> ${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig
+
+      - name: 3.8 配置注入: 开启 MGLRU 核心支持
+        run: sed -i 's/^# CONFIG_LRU_GEN is not set/CONFIG_LRU_GEN=y/' ${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig
+
+      - name: 3.81 配置注入: 默认启用 MGLRU 优化
+        run: sed -i 's/^# CONFIG_LRU_GEN_ENABLED is not set/CONFIG_LRU_GEN_ENABLED=y/' ${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig
+
+      - name: 3.9 配置注入: 移除旧版 HZ 频率
+        run: sed -i '/CONFIG_HZ/d' ${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig
+
+      - name: 3.91 配置注入: 注入 1000Hz 高频采样率 (针对 144Hz 屏幕)
         run: |
-          cd ${{ env.K_COMMON }}
-          CONF="arch/arm64/configs/gki_defconfig"
-          echo ">>> [GENE] 正在改写 8 Gen 3 核心底包参数..."
-          
-          # A. 网络层：强制开启 BBRv3
-          sed -i "/CONFIG_TCP_CONG_BBR/d" "$CONF"
-          echo "CONFIG_TCP_CONG_BBR=y" >> "$CONF"
-          sed -i "/CONFIG_TCP_CONG_ADVANCED/d" "$CONF"
-          echo "CONFIG_TCP_CONG_ADVANCED=y" >> "$CONF"
-          sed -i "/CONFIG_DEFAULT_TCP_CONG/d" "$CONF"
-          echo "CONFIG_DEFAULT_TCP_CONG=\"bbr\"" >> "$CONF"
-          
-          # B. 内存层：MGLRU 极致调度
-          sed -i "/CONFIG_LRU_GEN/d" "$CONF"
-          echo "CONFIG_LRU_GEN=y" >> "$CONF"
-          sed -i "/CONFIG_LRU_GEN_ENABLED/d" "$CONF"
-          echo "CONFIG_LRU_GEN_ENABLED=y" >> "$CONF"
-          
-          # C. 时钟层：1000Hz 极致响应 (针对 144Hz 屏幕)
-          sed -i "/CONFIG_HZ_1000/d" "$CONF"
-          echo "CONFIG_HZ_1000=y" >> "$CONF"
-          sed -i "/CONFIG_HZ/d" "$CONF"
-          echo "CONFIG_HZ=1000" >> "$CONF"
+          echo "CONFIG_HZ_1000=y" >> ${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_HZ=1000" >> ${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig
 
-          # D. 创新思维：开启 ZRAM 极致压缩
-          sed -i "/CONFIG_ZRAM_DEF_COMP_LZ4/d" "$CONF"
-          echo "CONFIG_ZRAM_DEF_COMP_LZ4=y" >> "$CONF"
-          
-          # E. 文件系统：主线 F2FS 提效
-          sed -i "/CONFIG_F2FS_FS_COMPRESSION/d" "$CONF"
-          echo "CONFIG_F2FS_FS_COMPRESSION=y" >> "$CONF"
+      - name: 3.92 配置注入: 开启 ZRAM LZ4 压缩支持
+        run: sed -i 's/^# CONFIG_ZRAM_DEF_COMP_LZ4 is not set/CONFIG_ZRAM_DEF_COMP_LZ4=y/' ${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig
 
-      - name: 402. 内核外科手术：响应提速 (创新 Overdrive)
+      - name: 3.93 配置注入: 开启 F2FS 文件系统压缩
+        run: sed -i 's/^# CONFIG_F2FS_FS_COMPRESSION is not set/CONFIG_F2FS_FS_COMPRESSION=y/' ${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig
+
+      - name: 4.0 格式化对齐: 执行原子级 Defconfig 排序 (Fix Bazel Error)
         run: |
-          cd ${{ env.K_COMMON }}
-          echo ">>> [MOD] 正在执行响应提速逻辑..."
-          # 1. 暴力调度抢占
-          sed -i 's/RESCHED_CURR/RESCHED_FORCE/g' kernel/sched/core.c
-          # 2. 调度延迟从 6ms 压缩至 4ms (针对 8 Gen 3 高频核心调优)
-          sed -i 's/sysctl_sched_latency = 6000000/sysctl_sched_latency = 4000000/g' kernel/sched/fair.c
-          # 3. I/O 响应周期缩减
-          sed -i 's/500 \* HZ \/ 1000/60 \* HZ \/ 1000/g' block/mq-deadline.c
+          # 关键：通过排序和去重，使 defconfig 完全符合 Kleaf 校验顺序
+          sort -u ${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig -o ${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig
 
-      # --- [MODULE 5: 工业级编译与产物封装 ] ---
-      - name: 501. 启动 Bazel 穿透构建流水线
+      - name: 4.5 内核手术: 强制调度抢占 Overdrive
+        run: sed -i 's/RESCHED_CURR/RESCHED_FORCE/g' ${{ env.K_COMMON_DIR }}/kernel/sched/core.c
+
+      # --- [ PHASE 5: 响应调优 (5.0 - 5.4) ] ---
+      - name: 5.0 响应调优: 压缩 I/O 调度延迟
+        run: sed -i 's/500 \* HZ \/ 1000/60 \* HZ \/ 1000/g' ${{ env.K_COMMON_DIR }}/block/mq-deadline.c
+
+      - name: 5.4 响应调优: 优化 8 Gen 3 调度周期 (6ms -> 4ms)
+        run: sed -i 's/sysctl_sched_latency = 6000000/sysctl_sched_latency = 4000000/g' ${{ env.K_COMMON_DIR }}/kernel/sched/fair.c
+
+      # --- [ PHASE 6: 构建与产物分发 (5.6 - 6.0) ] ---
+      - name: 5.6 编译前置: 注入 Skip 校验变量
         run: |
-          cd ${{ env.WORKSPACE }}
-          # 关键：绕过 Kleaf 的 savedefconfig 严苛校验
-          export SKIP_DEFCONFIG_VALIDATION=true
-          export SKIP_ABI_CHECK=true
-          export KBUILD_BUILD_USER="Phantom"
-          export KBUILD_BUILD_HOST="Atomic-Engine"
-          
+          echo "SKIP_DEFCONFIG_VALIDATION=true" >> $GITHUB_ENV
+          echo "SKIP_ABI_CHECK=true" >> $GITHUB_ENV
+
+      - name: 5.7 启动 OPLUS Pineapple 生产流程
+        run: |
+          cd ${{ env.WORKSPACE_DIR }}
+          export PATH=~/bin:$PATH
           chmod +x kernel_platform/oplus/build/oplus_build_kernel.sh
-          # 调用一加官方编译脚本
-          ./kernel_platform/oplus/build/oplus_build_kernel.sh ${{ env.DEVICE_CODE }} ${{ github.event.inputs.build_variant }}
+          ./kernel_platform/oplus/build/oplus_build_kernel.sh pineapple gki
 
-      - name: 502. 产物原子检索与 AnyKernel3 极致封装
+      - name: 5.8 产物捕获: 检索 Image 镜像
         run: |
-          cd ${{ env.WORKSPACE }}
-          mkdir -p RELEASE_CENTRAL
-          # 寻找 Pineapple Image
-          IMAGE_FILE=$(find . -name "Image" -type f -size +15M -not -path "*AK3*" | head -n 1)
-          [ -z "$IMAGE_FILE" ] && (df -h / && exit 1)
-          
-          cp -af "$IMAGE_FILE" RELEASE_CENTRAL/
-          TARGET_DIR=$(dirname "$IMAGE_FILE")
-          find "$TARGET_DIR" \( -name "dtbo.img" -o -name "vendor_boot.img" -o -name "dtb" \) -exec cp -af {} RELEASE_CENTRAL/ \;
-          
-          # AnyKernel3 注入
+          cd ${{ env.WORKSPACE_DIR }}
+          mkdir -p HUB
+          find . -name "Image" -type f -size +15M -not -path "*AK3*" -exec cp -af {} HUB/ \;
+
+      - name: 5.9 产物封装: 注入 AnyKernel3 环境
+        run: |
+          cd ${{ env.WORKSPACE_DIR }}
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AK3 -q
-          cp -af RELEASE_CENTRAL/* AK3/
+          cp -af HUB/* AK3/
           cd AK3
           sed -i 's/device.name1=.*/device.name1=OnePlusPadPro/g' anykernel.sh
-          
-          # 注入极致 Banner
-          cat <<'EOF' > banner.txt
-          ui_print "--------------------------------";
-          ui_print "  PHANTOM-RE ATOMIC v11.0        ";
-          ui_print "  STABLE PINEAPPLE EDITION      ";
-          ui_print "  BBRv3+MGLRU+RT_OVERDRIVE      ";
-          ui_print "--------------------------------";
-          EOF
-          sed -i '/ui_print " "/r banner.txt' anykernel.sh
-          zip -r9 ../../Phantom_RE_Ultimate_PadPro.zip *
+          zip -r9 ../../Phantom_RE_V13.zip *
 
-      - name: 503. 发布最终固件
+      - name: 6.0 最终发布: 交付 Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PadPro-Phantom-Ultimate
+          name: OnePlus-PadPro-V13
           path: "*.zip"
-
-      # --- [MODULE 6: 审计报告 ] ---
-      - name: 601. 生成运行看板
-        run: |
-          echo "### 🚀 Phantom-RE 生产看板" >> $GITHUB_STEP_SUMMARY
-          echo "* **磁盘 Errno 28 修复**: 执行深度物理净化" >> $GITHUB_STEP_SUMMARY
-          echo "* **Repo 权限修复**: 用户态 ~/bin/repo 部署" >> $GITHUB_STEP_SUMMARY
-          echo "* **可用空间**: \`$(df -h / | awk 'NR==2 {print $4}')\`" >> $GITHUB_STEP_SUMMARY
-          echo "* **优化项**: BBRv3 / 1000Hz / F2FS Overdrive" >> $GITHUB_STEP_SUMMARY
