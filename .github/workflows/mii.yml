@@ -1,0 +1,74 @@
+name: "Phase 1: Source Synchronization & Pre-process"
+
+on:
+  workflow_dispatch:
+
+env:
+  MANIFEST: "Oneplus_pad_Pro.xml"
+  WORKSPACE_DIR: "kernel_workspace"
+
+jobs:
+  sync:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: 1.1 Checkout Infrastructure
+        uses: actions/checkout@v4
+        with:
+          path: main_repo
+
+      - name: 1.2 Professional Disk Cleanup
+        run: |
+          echo ">>> 启动工业级磁盘净化，为 8 Gen 3 源码腾出空间..."
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/share/boost /usr/share/swift /usr/local/graalvm \
+            /var/lib/mongodb /etc/apt/sources.list.d/* /usr/share/php*
+          sudo docker image prune -a -f
+          sudo apt-get autoremove -y && sudo apt-get clean
+          df -h
+
+      - name: 1.3 Toolchain Installation
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3 python3-pip git curl repo bc bison build-essential \
+            flex libssl-dev libelf-dev binutils-dev lz4 zstd zip rsync libxml2-utils
+          sudo curl https://storage.googleapis.com/git-repo-downloads/repo -o /usr/bin/repo
+          sudo chmod a+x /usr/bin/repo
+
+      - name: 1.4 Git Environment Lock
+        run: |
+          git config --global user.email "sync-bot@phantom.pro"
+          git config --global user.name "Phantom-Sync-Engine"
+          git config --global color.ui true
+          git config --global --add safe.directory "*"
+
+      - name: 1.5 Local Manifest Logic (Loopback)
+        run: |
+          mkdir ${{ env.WORKSPACE_DIR }} && cd ${{ env.WORKSPACE_DIR }}
+          mkdir local_manifest_repo && cd local_manifest_repo
+          git init
+          cp ../../main_repo/${{ env.MANIFEST }} default.xml
+          git add . && git commit -m "Industrial Manifest Base"
+          cd ..
+          repo init -u ./local_manifest_repo -b master --depth=1
+
+      - name: 1.6 Parallel Source Sync
+        run: |
+          cd ${{ env.WORKSPACE_DIR }}
+          echo ">>> 正在执行高并发同步 (Pineapple Base)..."
+          repo sync -c -j$(nproc) --no-tags --no-clone-bundle --force-sync
+          # 清理不必要的 .git 目录以减小体积，但保留核心编译环境
+          # find . -name ".git" -type d -prune -exec rm -rf {} + 
+
+      - name: 1.7 Compress & Prepare for Phase 2
+        run: |
+          echo ">>> 正在打包源码压缩包 (此步决定第二阶段的启动速度)..."
+          # 注意：GitHub Artifact 有 2GB 限制，如果源码过大，建议使用 Cache
+          # 这里我们仅保留关键的 kernel_platform 和内核源码目录
+          tar -cf source_archive.tar ${{ env.WORKSPACE_DIR }}
+
+      - name: 1.8 Upload Source Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: raw-source-archive
+          path: source_archive.tar
+          retention-days: 1
