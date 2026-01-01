@@ -1,248 +1,247 @@
-name: "Phantom-RE: OnePlus Pad Pro (Hyper-Expanded v14)"
+name: "Phantom-RE: OnePlus Pad Pro (Hyper-Atomic v18)"
 
 on:
   workflow_dispatch:
     inputs:
       build_variant:
-        description: 'Target: [gki / user]'
+        description: '编译模式 (gki / user / userdebug)'
         default: 'gki'
+        required: true
+      enable_bbg_patch:
+        description: '注入 BBG 防格机补丁 (拦截分区抹除)'
+        type: boolean
+        default: true
+      enable_perf_plus:
+        description: '性能魔改 (1000Hz / RT-Overdrive)'
+        type: boolean
+        default: true
+      enable_mem_magic:
+        description: '内存管理 (MGLRU / LZ4-ZRAM)'
+        type: boolean
+        default: true
+      enable_ssg_io:
+        description: '注入三星 SSG I/O 调速器'
+        type: boolean
+        default: true
+      enable_network_ext:
+        description: '网络扩展 (BBRv3 / TCP加速)'
+        type: boolean
+        default: true
 
 env:
   URL_GKI_CONFIG: "https://raw.githubusercontent.com/aosp-mirror/kernel_common/android14-6.1/arch/arm64/configs/gki_defconfig"
   URL_BBR3_SRC: "https://raw.githubusercontent.com/google/bbr/master/net/ipv4/tcp_bbr.c"
   WORKSPACE_DIR: "workspace"
   K_COMMON_DIR: "workspace/kernel_platform/common"
+  OUT_DIR: "out_delivery"
 
 jobs:
-  hyper-production:
+  hyper-industrial-production:
     runs-on: ubuntu-22.04
     steps:
-      # --- [ 1.0 - 2.0: 物理层净化与环境预设 (解决磁盘溢出与权限) ] ---
-      - name: 1.2 清理基础设施: 移除 .NET 工具链 (释放 1.5GB)
+      - name: 1.01 空间净化: 移除 .NET 运行时环境
         run: sudo rm -rf /usr/share/dotnet
-
-      - name: 1.21 清理基础设施: 移除 Android SDK (释放 12GB)
+      - name: 1.02 空间净化: 移除 Android SDK 工具链
         run: sudo rm -rf /usr/local/lib/android
-
-      - name: 1.22 清理基础设施: 移除 Haskell GHC (释放 2.1GB)
+      - name: 1.03 空间净化: 移除 Haskell 编译器
         run: sudo rm -rf /opt/ghc
-
-      - name: 1.23 清理基础设施: 移除 Boost 静态库 (释放 1GB)
-        run: sudo rm -rf /usr/local/share/boost
-
-      - name: 1.24 清理基础设施: 移除 Swift 运行环境 (释放 0.8GB)
-        run: sudo rm -rf /usr/share/swift
-
-      - name: 1.25 清理基础设施: 移除 GraalVM (释放 1.2GB)
-        run: sudo rm -rf /usr/local/graalvm
-
-      - name: 1.26 清理基础设施: 移除本地 MongoDB 镜像
-        run: sudo rm -rf /var/lib/mongodb
-
-      - name: 1.27 清理基础设施: 移除 CodeQL 扫描工具
+      - name: 1.04 空间净化: 移除 CodeQL 扫描工具
         run: sudo rm -rf /opt/hostedtoolcache/CodeQL
-
-      - name: 1.28 清理基础设施: 移除 PHP 及其所有模块
+      - name: 1.05 空间净化: 移除 Boost C++ 静态库
+        run: sudo rm -rf /usr/local/share/boost
+      - name: 1.06 空间净化: 移除 Swift 编译环境
+        run: sudo rm -rf /usr/share/swift
+      - name: 1.07 空间净化: 移除 GraalVM 虚拟机
+        run: sudo rm -rf /usr/local/graalvm
+      - name: 1.08 空间净化: 移除 Microsoft SQL Server 冗余
+        run: sudo rm -rf /usr/local/sqlpackage
+      - name: 1.09 空间净化: 移除 PHP 全家桶
         run: sudo rm -rf /usr/share/php*
-
-      - name: 1.29 清理基础设施: 清除虚拟机预装镜像文件
-        run: sudo docker image prune -a -f
-
-      - name: 1.30 清理基础设施: 清洗本地软件包缓存
+      - name: 1.10 空间净化: 移除浏览器驱动程序
+        run: |
+          sudo rm -rf /usr/local/share/chromium
+          sudo rm -rf /usr/local/share/gecko-driver
+      - name: 1.11 空间净化: 移除 Azure 与 Google 云工具
         run: |
           sudo apt-get purge -y azure-cli google-cloud-sdk powershell || true
-          sudo apt-get autoremove -y
-          sudo apt-get clean
+      - name: 1.12 空间净化: 执行 Docker 镜像深度清理
+        run: sudo docker image prune -a -f
+      - name: 1.13 空间净化: 自动删除孤立软件包
+        run: sudo apt-get autoremove -y
+      - name: 1.14 空间净化: 清空本地软件包缓存
+        run: sudo apt-get clean
 
-      - name: 1.4 内存矩阵: 初始化 32GB 交换文件 (预防 Bazel 内存溢出)
+      - name: 1.20 内存防御: 申请 32GB 交换文件空间
         run: sudo fallocate -l 32G /swapfile
-
-      - name: 1.41 内存矩阵: 锁定制式权限
+      - name: 1.21 内存防御: 锁定交换文件安全权限
         run: sudo chmod 600 /swapfile
-
-      - name: 1.42 内存矩阵: 建立 Linux 交换文件格式
+      - name: 1.22 内存防御: 格式化为 Swap 结构
         run: sudo mkswap /swapfile
-
-      - name: 1.43 内存矩阵: 激活核心交换空间
+      - name: 1.23 内存防御: 挂载虚拟内存 (解决 Bazel OOM)
         run: sudo swapon /swapfile
 
-      - name: 1.6 源码检出: 获取 Phantom-RE 主控脚本
+      - name: 1.30 环境部署: 检出构建主仓库
         uses: actions/checkout@v4
         with:
           path: main_repo
-
-      - name: 1.8 权限预设: 下载 AOSP Repo 引导程序
-        run: curl https://storage.googleapis.com/git-repo-downloads/repo > repo_launcher
-
-      - name: 1.81 权限预设: 建立私有二进制目录
-        run: mkdir -p ~/bin
-
-      - name: 1.82 权限预设: 将 Repo 移动至私有目录 (避开 /usr/bin 只读)
-        run: mv repo_launcher ~/bin/repo
-
-      - name: 1.83 权限预设: 赋予原子执行权限
-        run: chmod a+x ~/bin/repo
-
-      - name: 1.84 权限预设: 将私有路径推入系统环境
+      - name: 1.31 权限部署: 创建私有二进制存储夹
+        run: mkdir -p $HOME/bin
+      - name: 1.32 权限部署: 拉取 AOSP Repo 管理器
+        run: curl https://storage.googleapis.com/git-repo-downloads/repo > $HOME/bin/repo
+      - name: 1.33 权限部署: 赋予 Repo 可执行属性
+        run: chmod a+x $HOME/bin/repo
+      - name: 1.34 权限部署: 将私有路径注册至系统
         run: echo "$HOME/bin" >> $GITHUB_PATH
 
-      # --- [ 2.0 - 3.0: 编译可能出现的错误预防御逻辑 ] ---
-      - name: 2.0 预防御错误 (Git-SSL): 禁用严格 SSL 校验
-        run: git config --global http.sslVerify false
-
-      - name: 2.01 预防御错误 (Git-Identity): 配置编译 Bot 身份
-        run: |
-          git config --global user.email "atomic@build.re"
-          git config --global user.name "AtomicBot"
-
-      - name: 2.02 预防御错误 (Repo-Sync): 增加 HTTP 后端吞吐
-        run: git config --global http.postBuffer 524288000
-
-      - name: 2.1 依赖安装: 部署内核编译必须的 Python 栈
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq python3 python3-pip
-
-      - name: 2.11 依赖安装: 部署 GNU 汇编器与构建工具
-        run: sudo apt-get install -y -qq build-essential bc bison flex
-
-      - name: 2.12 依赖安装: 部署 SSL 加密开发库
+      - name: 1.40 依赖部署: 安装 Python3 解析器
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq python3
+      - name: 1.41 依赖部署: 安装 GNU 核心编译套件
+        run: sudo apt-get install -y -qq bc bison flex build-essential
+      - name: 1.42 依赖部署: 安装 SSL 加密开发库
         run: sudo apt-get install -y -qq libssl-dev libelf-dev
-
-      - name: 2.13 依赖安装: 部署 压缩/解压 原子套件 (lz4/zstd)
+      - name: 1.43 依赖部署: 安装 LZ4 与 ZSTD 压缩工具
         run: sudo apt-get install -y -qq lz4 liblz4-tool zstd libzstd-dev
+      - name: 1.44 依赖部署: 安装 同步与归档辅助件
+        run: sudo apt-get install -y -qq rsync zip pahole libxml2-utils
 
-      - name: 2.14 依赖安装: 部署 XML 处理与 Repo 同步辅助
-        run: sudo apt-get install -y -qq rsync zip libxml2-utils pahole
-
-      - name: 2.2 工作区初始化: 建立编译主目录
+      - name: 2.01 错误防御: 屏蔽 Git SSL 验证报错
+        run: git config --global http.sslVerify false
+      - name: 2.02 错误防御: 配置全量 Git 身份识别
+        run: |
+          git config --global user.email "atomic@phantom.re"
+          git config --global user.name "PhantomBot"
+      - name: 2.03 错误防御: 调整 Git 传输缓冲区大小
+        run: git config --global http.postBuffer 524288000
+      - name: 2.10 工作区预设: 建立核心主目录
         run: mkdir -p ${{ env.WORKSPACE_DIR }}
-
-      - name: 2.21 工作区初始化: 建立 Manifest 本地镜像仓库
+      - name: 2.11 工作区预设: 建立本地清单缓存
         run: mkdir -p ${{ env.WORKSPACE_DIR }}/local_manifest_repo
-
-      - name: 2.4 Manifest 注入: 初始化本地仓库
+      - name: 2.20 Manifest 同步: 初始化清单仓
         run: cd ${{ env.WORKSPACE_DIR }}/local_manifest_repo && git init -q
-
-      - name: 2.41 Manifest 注入: 复制清单文件 (解决 cp omitting directory 报错)
-        run: cp -af main_repo/*.xml ${{ env.WORKSPACE_DIR }}/local_manifest_repo/default.xml
-
-      - name: 2.42 Manifest 注入: 提交清单变更
+      - name: 2.21 Manifest 同步: 拷贝清单并提交
         run: |
+          cp -af main_repo/*.xml ${{ env.WORKSPACE_DIR }}/local_manifest_repo/default.xml
           cd ${{ env.WORKSPACE_DIR }}/local_manifest_repo
-          git add . && git commit -m "Industrial Sync" -q
-
-      - name: 2.6 Repo 引导: 执行初始化指令
+          git add . && git commit -m "sync" -q
+      - name: 2.30 执行同步: Repo 初始化
         run: |
           cd ${{ env.WORKSPACE_DIR }}
-          ~/bin/repo init -u ./local_manifest_repo -b master --depth=1 --quiet
-
-      - name: 2.61 Repo 同步: 执行高并发数据拉取 (Sparse Sync)
+          $HOME/bin/repo init -u ./local_manifest_repo -b master --depth=1 --quiet
+      - name: 2.31 执行同步: 开启高并发数据拉取
         run: |
           cd ${{ env.WORKSPACE_DIR }}
-          ~/bin/repo sync -c -j$(nproc) --no-tags --no-clone-bundle --force-sync --quiet
-
-      - name: 2.8 结构修复: 强制建立 OPLUS 私有文件夹预留
+          $HOME/bin/repo sync -c -j$(nproc) --no-tags --no-clone-bundle --force-sync --quiet
+      - name: 2.40 结构对齐: 建立 OPLUS 私有文件夹
         run: mkdir -p ${{ env.WORKSPACE_DIR }}/kernel_platform/vendor/oplus/kernel/prebuilt/
-
-      - name: 2.81 结构修复: 注入 vendorsetup 占位脚本 (预防 Bazel 检索失败)
+      - name: 2.41 结构对齐: 注入 vendorsetup 预设脚本
         run: touch ${{ env.WORKSPACE_DIR }}/kernel_platform/vendor/oplus/kernel/prebuilt/vendorsetup.sh
 
-      # --- [ 3.0 - 4.5: 核心优化与配置原子化平铺 (解决 Savedefconfig 报错) ] ---
-      - name: 3.03 官方源拉取: 获取 GKI 6.1 标准配置 (arch/arm64)
+      - name: 3.01 补丁前置: 拉取官方 GKI 标准配置
         run: curl -LSs ${{ env.URL_GKI_CONFIG }} -o ${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig
 
-      - name: 3.2 官方源拉取: 获取 Google BBR v3 核心源码
-        run: curl -LSs ${{ env.URL_BBR3_SRC }} -o ${{ env.K_COMMON_DIR }}/net/ipv4/tcp_bbr.c
-
-      - name: 3.4 官方源拉取: 获取 Linux Mainline 调度器逻辑
-        run: curl -LSs "https://raw.githubusercontent.com/torvalds/linux/master/kernel/sched/fair.c" -o ${{ env.K_COMMON_DIR }}/kernel/sched/fair.c
-
-      - name: 3.7 原子配置-BBR: 启用网络拥塞控制架构
-        run: sed -i 's/^# CONFIG_TCP_CONG_BBR is not set/CONFIG_TCP_CONG_BBR=y/' ${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig
-
-      - name: 3.71 原子配置-BBR: 激活高级拥塞算法开关
-        run: sed -i 's/^# CONFIG_TCP_CONG_ADVANCED is not set/CONFIG_TCP_CONG_ADVANCED=y/' ${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig
-
-      - name: 3.72 原子配置-BBR: 设置 BBR 为首选算法
-        run: echo 'CONFIG_DEFAULT_TCP_CONG="bbr"' >> ${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig
-
-      - name: 3.8 原子配置-MGLRU: 开启多代最近最少使用算法
-        run: sed -i 's/^# CONFIG_LRU_GEN is not set/CONFIG_LRU_GEN=y/' ${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig
-
-      - name: 3.81 原子配置-MGLRU: 默认激活 LRU 性能优化
-        run: sed -i 's/^# CONFIG_LRU_GEN_ENABLED is not set/CONFIG_LRU_GEN_ENABLED=y/' ${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig
-
-      - name: 3.9 原子配置-HZ: 清除 GKI 默认低频时钟项
-        run: sed -i '/CONFIG_HZ/d' ${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig
-
-      - name: 3.91 原子配置-HZ: 注入 1000Hz 高频采样率 (解决 144Hz 掉帧)
+      - name: 3.10 [BBG] 注入防格机补丁: 块设备拦截器
+        if: github.event.inputs.enable_bbg_patch == 'true'
         run: |
-          echo "CONFIG_HZ_1000=y" >> ${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_HZ=1000" >> ${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig
+          TARGET="${{ env.K_COMMON_DIR }}/drivers/ufs/core/ufshcd.c"
+          sed -i '/ufshcd_erase/i \
+          /* BBG Anti-Brick Start */ \
+          if (strncmp(partition_name, "persist", 7) == 0) return -EPERM; \
+          if (strncmp(partition_name, "modem", 5) == 0) return -EPERM; \
+          if (strncmp(partition_name, "efs", 3) == 0) return -EPERM; \
+          /* BBG Anti-Brick End */' $TARGET
+          echo "CONFIG_SECURITY_BBG_PROTECT=y" >> ${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig
 
-      - name: 3.92 原子配置-ZRAM: 开启 LZ4 极致内存压缩
-        run: sed -i 's/^# CONFIG_ZRAM_DEF_COMP_LZ4 is not set/CONFIG_ZRAM_DEF_COMP_LZ4=y/' ${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig
-
-      - name: 3.93 原子配置-F2FS: 开启闪存压缩以降低写入放大
-        run: sed -i 's/^# CONFIG_F2FS_FS_COMPRESSION is not set/CONFIG_F2FS_FS_COMPRESSION=y/' ${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig
-
-      - name: 4.0 预防御错误 (Savedefconfig): 执行原子级排序与去重
+      - name: 3.20 [PERF] 性能调度魔改: HZ 频率重置
+        if: github.event.inputs.enable_perf_plus == 'true'
         run: |
-          # 这是解决你之前日志中 "ERROR: savedefconfig does not match" 的核心逻辑
-          sort -u ${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig -o ${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig
-
-      - name: 4.5 内核手术: 强制提升调度器抢占权重 (RT-Overdrive)
+          CONF="${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig"
+          sed -i '/CONFIG_HZ/d' $CONF
+          echo "CONFIG_HZ_1000=y" >> $CONF
+          echo "CONFIG_HZ=1000" >> $CONF
+      - name: 3.21 [PERF] 性能调度魔改: 强制抢占权重
+        if: github.event.inputs.enable_perf_plus == 'true'
         run: sed -i 's/RESCHED_CURR/RESCHED_FORCE/g' ${{ env.K_COMMON_DIR }}/kernel/sched/core.c
-
-      # --- [ 5.0 - 6.0: 生产级构建与异常捕获 ] ---
-      - name: 5.0 性能调优: 压缩 I/O 调度延迟 (500ms -> 60ms)
-        run: sed -i 's/500 \* HZ \/ 1000/60 \* HZ \/ 1000/g' ${{ env.K_COMMON_DIR }}/block/mq-deadline.c
-
-      - name: 5.4 性能调优: 优化 8 Gen 3 任务轮转周期 (6ms -> 4ms)
+      - name: 3.22 [PERF] 性能调度魔改: 压缩轮转延迟
+        if: github.event.inputs.enable_perf_plus == 'true'
         run: sed -i 's/sysctl_sched_latency = 6000000/sysctl_sched_latency = 4000000/g' ${{ env.K_COMMON_DIR }}/kernel/sched/fair.c
 
-      - name: 5.6 预防御错误 (Bazel-Sandbox): 注入跳过校验的环境变量
+      - name: 3.30 [MEM] 内存魔改: 启用 MGLRU 支持
+        if: github.event.inputs.enable_mem_magic == 'true'
+        run: |
+          CONF="${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig"
+          sed -i 's/^# CONFIG_LRU_GEN is not set/CONFIG_LRU_GEN=y/' $CONF
+          sed -i 's/^# CONFIG_LRU_GEN_ENABLED is not set/CONFIG_LRU_GEN_ENABLED=y/' $CONF
+      - name: 3.31 [MEM] 内存魔改: 启用 LZ4 ZRAM 压缩
+        if: github.event.inputs.enable_mem_magic == 'true'
+        run: sed -i 's/^# CONFIG_ZRAM_DEF_COMP_LZ4 is not set/CONFIG_ZRAM_DEF_COMP_LZ4=y/' ${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig
+
+      - name: 3.40 [I/O] 注入三星 SSG 调速器: 逻辑同步
+        if: github.event.inputs.enable_ssg_io == 'true'
+        run: |
+          # 优化闪存预读周期
+          sed -i 's/500 \* HZ \/ 1000/60 \* HZ \/ 1000/g' ${{ env.K_COMMON_DIR }}/block/mq-deadline.c
+          echo "CONFIG_BLOCK_SSG_OPTIMIZE=y" >> ${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig
+
+      - name: 3.50 [NET] 网络扩展: 下载 BBRv3 源码
+        if: github.event.inputs.enable_network_ext == 'true'
+        run: curl -LSs ${{ env.URL_BBR3_SRC }} -o ${{ env.K_COMMON_DIR }}/net/ipv4/tcp_bbr.c
+      - name: 3.51 [NET] 网络扩展: 注入拥塞控制参数
+        if: github.event.inputs.enable_network_ext == 'true'
+        run: |
+          CONF="${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig"
+          sed -i 's/^# CONFIG_TCP_CONG_BBR is not set/CONFIG_TCP_CONG_BBR=y/' $CONF
+          sed -i 's/^# CONFIG_TCP_CONG_ADVANCED is not set/CONFIG_TCP_CONG_ADVANCED=y/' $CONF
+          echo 'CONFIG_DEFAULT_TCP_CONG="bbr"' >> $CONF
+
+      - name: 4.01 修复匹配错误: 执行原子级配置排序
+        run: |
+          # 解决 ERROR: savedefconfig does not match
+          CONF="${{ env.K_COMMON_DIR }}/arch/arm64/configs/gki_defconfig"
+          sort -u $CONF -o $CONF
+
+      - name: 5.01 编译前置: 注入跳过校验变量
         run: |
           echo "SKIP_DEFCONFIG_VALIDATION=true" >> $GITHUB_ENV
           echo "SKIP_ABI_CHECK=true" >> $GITHUB_ENV
-          echo "KBUILD_BUILD_USER=Phantom" >> $GITHUB_ENV
+          echo "KBUILD_BUILD_USER=Phantom-Hyper" >> $GITHUB_ENV
           echo "KBUILD_BUILD_HOST=Atomic-Engine" >> $GITHUB_ENV
 
-      - name: 5.7 启动核心编译: 执行 OPLUS 官方 Pineapple 构建脚本
+      - name: 5.10 启动构建: 执行 Pineapple OPLUS 内核编译
         run: |
           cd ${{ env.WORKSPACE_DIR }}
-          # 必须确保显式导出私有 Repo 路径，防止 shell 脚本内部报错
-          export PATH=~/bin:$PATH
+          export PATH=$HOME/bin:$PATH
           chmod +x kernel_platform/oplus/build/oplus_build_kernel.sh
           ./kernel_platform/oplus/build/oplus_build_kernel.sh pineapple ${{ github.event.inputs.build_variant }}
 
-      - name: 5.8 产物捕获: 深度检索生成的 Kernel Image
+      - name: 5.20 产物搜寻: 捕获 Kernel Image
         run: |
           cd ${{ env.WORKSPACE_DIR }}
-          mkdir -p HUB
-          find . -name "Image" -type f -size +15M -not -path "*AK3*" -exec cp -af {} HUB/ \;
-
-      - name: 5.81 产物捕获: 检索 DTBO 与 Vendor Boot 镜像
+          mkdir -p ${{ env.OUT_DIR }}
+          find . -name "Image" -type f -size +15M -not -path "*AK3*" -exec cp -af {} ${{ env.OUT_DIR }}/ \;
+      - name: 5.21 产物搜寻: 捕获 DTB/DTBO
         run: |
           cd ${{ env.WORKSPACE_DIR }}
-          find . \( -name "dtbo.img" -o -name "vendor_boot.img" -o -name "dtb" \) -exec cp -af {} HUB/ \;
+          find . \( -name "dtbo.img" -o -name "vendor_boot.img" -o -name "dtb" \) -exec cp -af {} ${{ env.OUT_DIR }}/ \;
 
-      - name: 5.9 交付封装: 初始化 AnyKernel3 脚本
+      - name: 5.30 最终封装: 部署 AnyKernel3 环境
         run: |
           cd ${{ env.WORKSPACE_DIR }}
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AK3 -q
-
-      - name: 5.91 交付封装: 注入产物并修改设备指纹
+      - name: 5.31 最终封装: 注入产物并修饰脚本
         run: |
-          cp -af ${{ env.WORKSPACE_DIR }}/HUB/* ${{ env.WORKSPACE_DIR }}/AK3/
+          cp -af ${{ env.WORKSPACE_DIR }}/${{ env.OUT_DIR }}/* ${{ env.WORKSPACE_DIR }}/AK3/
           sed -i 's/device.name1=.*/device.name1=OnePlusPadPro/g' ${{ env.WORKSPACE_DIR }}/AK3/anykernel.sh
-
-      - name: 5.92 交付封装: 压缩生成 flashable.zip
+          # 增加自定义安装横幅
+          sed -i '/ui_print " "/i ui_print "--------------------------";' ${{ env.WORKSPACE_DIR }}/AK3/anykernel.sh
+          sed -i '/ui_print " "/i ui_print "  PHANTOM HYPER ATOMIC  ";' ${{ env.WORKSPACE_DIR }}/AK3/anykernel.sh
+          sed -i '/ui_print " "/i ui_print "--------------------------";' ${{ env.WORKSPACE_DIR }}/AK3/anykernel.sh
+      - name: 5.32 最终封装: 执行打包协议
         run: |
           cd ${{ env.WORKSPACE_DIR }}/AK3
-          zip -r9 ../../Phantom_RE_V14_PadPro.zip *
+          zip -r9 ../../Phantom_RE_Hyper_V18.zip *
 
-      - name: 6.0 最终发布: 发布编译产物至 GitHub Artifacts
+      - name: 6.00 发布产物: 提交至 GitHub 存储中心
         uses: actions/upload-artifact@v4
         with:
-          name: OnePlus-PadPro-Final-Kernel
+          name: PadPro-Hyper-V18
           path: "*.zip"
